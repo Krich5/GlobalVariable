@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WxCC AdvisoryMessage Preview</title>
+  <script src="https://krich5.github.io/GlobalVariable/advisory-message.js?v=3"></script>
+  <style>
+    body {
+      background:#f1f5f9;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      padding:40px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Preview of &lt;advisory-message&gt; Widget</h2>
+  <p style="max-width:600px">
+    This preview passes dummy values for <code>bearerToken</code> and <code>organizationId</code>
+    so the API calls will likely fail (you’ll see an error banner inside the widget), but you can confirm
+    the UI renders correctly.
+  </p>
+
+  <advisory-message
+    bearerToken="TEST_TOKEN"
+    organizationId="TEST_ORG"
+    dataCenter="us1"
+    cadVarId="ed98c1dc-00c0-4db0-9926-c88422405e0a"
+    canEdit="true">
+  </advisory-message>
+
+  <script>
+    // In case the component needs explicit creation (for layout loaders)
+    if (!document.querySelector('advisory-message')) {
+      const el = window['advisory-message'] ? window['advisory-message']() : document.createElement('advisory-message');
+      el.setAttribute('bearerToken','TEST_TOKEN');
+      el.setAttribute('organizationId','TEST_ORG');
+      el.setAttribute('dataCenter','us1');
+      el.setAttribute('cadVarId','ed98c1dc-00c0-4db0-9926-c88422405e0a');
+      el.setAttribute('canEdit','true');
+      document.body.appendChild(el);
+    }
+  </script>
+</body>
+</html>
