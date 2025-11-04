@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Advisory Message — Standalone Harness</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:#f1f5f9; margin:0; padding:24px; }
+  h1 { margin:0 0 12px 0; }
+  .harness { display:grid; gap:8px; grid-template-columns: repeat(6, 1fr); align-items:end; }
+  .harness > div { display:flex; flex-direction:column; }
+  input, select { padding:8px; border:1px solid #d1d5db; border-radius:8px; background:#fff; }
+  label { font-size:12px; color:#64748b; margin-bottom:4px; }
+  .row { display:flex; align-items:center; gap:12px; margin-top:12px; }
+  button { border:1px solid #e5e7eb; background:#0ea5e9; color:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+  button.secondary { background:#6b7280; }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-top:16px; }
+  .log { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; font-size:12px; color:#111827; background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-top:16px; }
+</style>
+</head>
+<body>
+  <h1>Advisory Message — Standalone Test</h1>
+  <div class="card">
+    <div class="harness">
+      <div>
+        <label>Bearer Token</label>
+        <input id="inToken" placeholder="Paste $STORE.auth.accessToken" />
+      </div>
+      <div>
+        <label>Organization ID</label>
+        <input id="inOrg" placeholder="Paste $STORE.agent.orgId" />
+      </div>
+      <div>
+        <label>Data Center</label>
+        <select id="inDc">
+          <option value="us1" selected>us1</option>
+          <option value="us2">us2</option>
+          <option value="eu1">eu1</option>
+          <option value="ap1">ap1</option>
+        </select>
+      </div>
+      <div>
+        <label>CAD Variable ID</label>
+        <input id="inVar" value="ed98c1dc-00c0-4db0-9926-c88422405e0a" />
+      </div>
+      <div>
+        <label>Mock mode</label>
+        <select id="inMock">
+          <option value="true" selected>true (no real API)</option>
+          <option value="false">false (call WxCC API)</option>
+        </select>
+      </div>
+      <div>
+        <button id="btnMount">Mount / Update Props</button>
+      </div>
+    </div>
+    <div class="row">
+      <button id="btnRefresh">Refresh (GET)</button>
+      <button id="btnEdit" class="secondary">Toggle Edit</button>
+      <button id="btnSave">Save (PUT)</button>
+    </div>
+  </div>
+
+  <!-- Where the widget will live -->
+  <div id="mount" class="card"></div>
+
+  <div class="log" id="log"></div>
+
+<script>
+/* =========================
+   <advisory-message> component (inline)
+   ========================= */
+(function () {
+  const TPL = document.createElement('template');
+  TPL.innerHTML = `
+    <style>
+      :host { display:block; color:#0f172a; }
+      .card { border:1px solid #e5e7eb; border-radius:12px; padding:16px; background:#fff; }
+      .row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+      .muted { color:#64748b; font-size:12px; }
+      .msg { font-size:16px; line-height:1.5; padding:12px; background:#f8fafc; border-radius:8px; border:1px dashed #cbd5e1; word-break:break-word; }
+      button { border:1px solid #e5e7eb; background:#0ea5e9; color:#fff; padding:8px 12px; border-radius:8px; cursor:pointer; font-weight:600; }
+      button[disabled] { opacity:.6; cursor:not-allowed; }
+      .error { color:#dc2626; font-size:12px; margin-top:8px; white-space:pre-wrap }
+      .kvs { display:grid; grid-template-columns: 120px 1fr; gap:6px 12px; margin-top:8px; }
+      .kv-key { color:#64748b; font-size:12px; }
+      .kv-val { font-size:12px; color:#0f172a; }
+      textarea { width:100%; min-height:96px; padding:10px; border:1px solid #e5e7eb; border-radius:8px; resize:vertical; }
+      .edit { margin-top:12px; display:none; }
+      .btns { display:flex; gap:8px; margin-top:8px; }
+    </style>
+    <div class="card">
+      <div class="row">
+        <div>
+          <div style="font-weight:700;">Desktop Advisory Message</div>
+          <div class="muted" id="status">Idle</div>
+        </div>
+        <div>
+          <button id="refreshBtn">Refresh</button>
+          <button id="editToggle" style="display:none;background:#10b981;">Edit</button>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <div class="muted">Current message (defaultValue)</div>
+        <div class="msg" id="messageBox">—</div>
+      </div>
+      <div class="edit" id="editPanel">
+        <div class="muted">New message</div>
+        <textarea id="editText" placeholder="Type the advisory message…"></textarea>
+        <div class="btns">
+          <button id="saveBtn">Save</button>
+          <button id="cancelBtn" style="background:#6b7280;">Cancel</button>
+        </div>
+      </div>
+      <div class="kvs">
+        <div class="kv-key">Variable ID</div><div class="kv-val" id="kvId">—</div>
+        <div class="kv-key">Name</div><div class="kv-val" id="kvName">—</div>
+        <div class="kv-key">Active</div><div class="kv-val" id="kvActive">—</div>
+        <div class="kv-key">Last Updated</div><div class="kv-val" id="kvUpdated">—</div>
+      </div>
+      <div class="error" id="errorBox" hidden></div>
+    </div>
+  `;
+
+  function dcToBaseUrl(dc){ return `https://api.wxcc-${(dc||'us1').toLowerCase()}.cisco.com`; }
+  function fmtTime(ms){ if(ms==null) return '—'; try { return new Date(Number(ms)).toLocaleString(); } catch { return String(ms); } }
+
+  class AdvisoryMessageEl extends HTMLElement {
+    static get observedAttributes(){ return ['bearertoken','organizationid','datacenter','cadvarid','canedit','mock']; }
+
+    constructor(){
+      super();
+      this.attachShadow({mode:'open'}).appendChild(TPL.content.cloneNode(true));
+      this._els = {
+        status: this.shadowRoot.getElementById('status'),
+        refreshBtn: this.shadowRoot.getElementById('refreshBtn'),
+        editToggle: this.shadowRoot.getElementById('editToggle'),
+        editPanel: this.shadowRoot.getElementById('editPanel'),
+        editText: this.shadowRoot.getElementById('editText'),
+        saveBtn: this.shadowRoot.getElementById('saveBtn'),
+        cancelBtn: this.shadowRoot.getElementById('cancelBtn'),
+        messageBox: this.shadowRoot.getElementById('messageBox'),
+        errorBox: this.shadowRoot.getElementById('errorBox'),
+        kvId: this.shadowRoot.getElementById('kvId'),
+        kvName: this.shadowRoot.getElementById('kvName'),
+        kvActive: this.shadowRoot.getElementById('kvActive'),
+        kvUpdated: this.shadowRoot.getElementById('kvUpdated'),
+      };
+      this._lastValue = '';
+      this._poll = null;
+    }
+
+    get bearerToken(){ return this.getAttribute('bearertoken') || ''; }
+    get organizationId(){ return this.getAttribute('organizationid') || ''; }
+    get dataCenter(){ return this.getAttribute('datacenter') || 'us1'; }
+    get cadVarId(){ return this.getAttribute('cadvarid') || 'ed98c1dc-00c0-4db0-9926-c88422405e0a'; }
+    get canEdit(){ return String(this.getAttribute('canedit')||'false').toLowerCase()==='true'; }
+    get mock(){ return String(this.getAttribute('mock')||'true').toLowerCase()==='true'; }
+
+    attributeChangedCallback(){
+      // When props change, refresh
+      if (this.isConnected) this._fetchOnce(true);
+      this._els.editToggle.style.display = this.canEdit ? 'inline-block' : 'none';
+    }
+
+    connectedCallback(){
+      const e = this._els;
+      e.refreshBtn.addEventListener('click', ()=>this._fetchOnce(true));
+      e.editToggle.addEventListener('click', ()=>this._toggleEdit());
+      e.cancelBtn.addEventListener('click', ()=> e.editPanel.style.display='none');
+      e.saveBtn.addEventListener('click', ()=> this._onSave());
+      this._fetchOnce();
+      this._poll = setInterval(()=> this._fetchOnce(), 30000);
+    }
+
+    disconnectedCallback(){ if(this._poll) clearInterval(this._poll); }
+
+    async _fetchOnce(isManual=false){
+      const e=this._els;
+      e.errorBox.hidden = true; e.errorBox.textContent='';
+      e.status.textContent = isManual ? 'Refreshing…' : 'Syncing…';
+
+      try {
+        let data;
+        if (this.mock) {
+          // Mock GET
+          await new Promise(r=>setTimeout(r,300));
+          data = {
+            id: this.cadVarId,
+            name: "Kenley_Advisory_Message",
+            active: true,
+            variableType: "String",
+            defaultValue: this._lastValue || "Important Message (mock)",
+            lastUpdatedTime: Date.now()
+          };
+        } else {
+          // Live GET
+          if (!this.bearerToken || !this.organizationId || !this.cadVarId) {
+            throw new Error('Missing bearerToken, organizationId, or cadVarId.');
+          }
+          const base = dcToBaseUrl(this.dataCenter);
+          const url = `${base}/organization/${encodeURIComponent(this.organizationId)}/cad-variable/${encodeURIComponent(this.cadVarId)}`;
+          const res = await fetch(url, { headers: { 'Authorization': `Bearer ${this.bearerToken}`, 'Accept':'application/json' }});
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
+          data = await res.json();
+        }
+
+        this._lastValue = data?.defaultValue ?? '—';
+        e.messageBox.textContent = this._lastValue || '—';
+        e.kvId.textContent = data?.id ?? this.cadVarId;
+        e.kvName.textContent = data?.name ?? '—';
+        e.kvActive.textContent = String(data?.active ?? '—');
+        e.kvUpdated.textContent = fmtTime(data?.lastUpdatedTime);
+        e.status.textContent = 'Up to date';
+      } catch (err) {
+        e.errorBox.hidden = false;
+        e.errorBox.textContent = `Error loading advisory message: ${err.message}`;
+        e.status.textContent = 'Error';
+      }
+    }
+
+    _toggleEdit(){
+      const e=this._els;
+      e.editPanel.style.display = e.editPanel.style.display==='block' ? 'none' : 'block';
+      e.editText.value = this._lastValue || '';
+      e.editText.focus();
+    }
+
+    async _onSave(){
+      const e=this._els;
+      const newVal = (e.editText.value || '').trim();
+      if(!newVal){ e.errorBox.hidden=false; e.errorBox.textContent='Message cannot be empty.'; return; }
+      e.errorBox.hidden=true; e.status.textContent='Saving…';
+
+      try {
+        if (this.mock) {
+          // Mock PUT
+          await new Promise(r=>setTimeout(r,300));
+          this._lastValue = newVal;
+        } else {
+          if (!this.bearerToken || !this.organizationId || !this.cadVarId) {
+            throw new Error('Missing bearerToken, organizationId, or cadVarId.');
+          }
+          const base = dcToBaseUrl(this.dataCenter);
+          const url = `${base}/organization/${encodeURIComponent(this.organizationId)}/cad-variable/${encodeURIComponent(this.cadVarId)}`;
+          const res = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${this.bearerToken}`, 'Content-Type':'application/json', 'Accept':'application/json' },
+            body: JSON.stringify({ defaultValue: newVal })
+          });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
+          this._lastValue = newVal;
+        }
+        e.status.textContent='Saved';
+        e.editPanel.style.display='none';
+        this._els.messageBox.textContent = this._lastValue;
+        this._els.kvUpdated.textContent = fmtTime(Date.now());
+      } catch (err) {
+        e.errorBox.hidden=false; e.errorBox.textContent = `Save failed: ${err.message}`;
+        e.status.textContent='Error';
+      }
+    }
+  }
+
+  if (!customElements.get('advisory-message')) customElements.define('advisory-message', AdvisoryMessageEl);
+})();
+</script>
+
+<script>
+/* =========================
+   Harness logic (mount + controls + logs)
+   ========================= */
+const logEl = document.getElementById('log');
+function log(s){ logEl.textContent += (s + "\n"); }
+
+const inToken = document.getElementById('inToken');
+const inOrg   = document.getElementById('inOrg');
+const inDc    = document.getElementById('inDc');
+const inVar   = document.getElementById('inVar');
+const inMock  = document.getElementById('inMock');
+const mount   = document.getElementById('mount');
+
+let widget;
+
+function mountOrUpdate(){
+  if (!widget) {
+    widget = document.createElement('advisory-message');
+    widget.setAttribute('canedit','true');
+    mount.innerHTML = ""; // clear
+    mount.appendChild(widget);
+    log("Mounted <advisory-message>.");
+  }
+  widget.setAttribute('bearertoken', inToken.value.trim());
+  widget.setAttribute('organizationid', inOrg.value.trim());
+  widget.setAttribute('datacenter', inDc.value);
+  widget.setAttribute('cadvarid', inVar.value.trim());
+  widget.setAttribute('mock', inMock.value);
+  log(`Updated props: dc=${inDc.value}, mock=${inMock.value}, varId=${inVar.value}`);
+}
+
+document.getElementById('btnMount').addEventListener('click', mountOrUpdate);
+document.getElementById('btnRefresh').addEventListener('click', ()=> widget?.shadowRoot.getElementById('refreshBtn')?.click());
+document.getElementById('btnEdit').addEventListener('click', ()=> widget?.shadowRoot.getElementById('editToggle')?.click());
+document.getElementById('btnSave').addEventListener('click',  ()=> widget?.shadowRoot.getElementById('saveBtn')?.click());
+
+// Auto-mount once in mock mode to show UI right away
+mountOrUpdate();
+</script>
+</body>
+</html>
